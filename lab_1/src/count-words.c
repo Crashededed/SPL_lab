@@ -7,11 +7,10 @@
 /* return string "word" if the count is 1 or "words" otherwise */
 char *words(int count)
 {
-  char *words = "words";
   if (count == 1)
-    	words[strlen(words)-1] = '\0';
-  
-  return words;
+    return "word";
+
+  return "words";
 }
 
 /* print a message reportint the number of words */
@@ -23,7 +22,7 @@ int print_word_count(char **argv)
     ++count;
   char *wordss = words(count);
   printf("The sentence contains %d %s.\n", count, wordss);
-  
+
   return count;
 }
 
