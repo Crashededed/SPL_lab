@@ -77,7 +77,7 @@ struct fun_desc menu[] = {
 int main(int argc, char **argv)
 {
     char input[1024];
-    char *carray = (char *)calloc(5, sizeof(char));
+    char *carray = calloc(5, sizeof(char));
 
     // calculate bound for functions
     int bound = 0;
