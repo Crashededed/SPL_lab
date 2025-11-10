@@ -60,12 +60,14 @@ char dprt(char c)
     return c;
 }
 
+//ref: from moodle
 struct fun_desc
 {
     char *name;
     char (*fun)(char);
 };
 
+//ref: from moodle
 struct fun_desc menu[] = {
     {"my_get", my_get},
     {"cprt", cxprt},
@@ -76,7 +78,8 @@ struct fun_desc menu[] = {
 
 int main(int argc, char **argv)
 {
-    char input[1024];
+    char input[100];
+    //ref: geeksforgeeks
     char *carray = calloc(5, sizeof(char));
 
     // calculate bound for functions
@@ -92,12 +95,14 @@ int main(int argc, char **argv)
         for (int i = 0; i < bound; i++)
             printf(" (%d) - %s\n", i, menu[i].name);
 
-        if (fgets(input, 1024, stdin) == NULL)
+        //ref: geeksforgeeks
+        if (fgets(input, 100, stdin) == NULL)
         {
             printf("Exiting menu.\n");
             break;
         }
 
+        //ref: atoi from moodle
         int choice = atoi(input);
 
         if (choice >= 0 && choice < bound)
