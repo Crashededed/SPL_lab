@@ -9,6 +9,7 @@ char *map(char *array, int array_length, char (*f)(char))
 
     for (int i = 0; i < array_length; i++)
     {
+        //https://www.w3schools.com/c/c_functions_pointers.php
         mapped_array[i] = (*f)(array[i]);
     }
 
@@ -79,7 +80,7 @@ struct fun_desc menu[] = {
 int main(int argc, char **argv)
 {
     char input[100];
-    //ref: geeksforgeeks
+    //ref: https://www.geeksforgeeks.org/c/dynamic-memory-allocation-in-c-using-malloc-calloc-free-and-realloc/
     char *carray = calloc(5, sizeof(char));
 
     // calculate bound for functions
@@ -95,7 +96,7 @@ int main(int argc, char **argv)
         for (int i = 0; i < bound; i++)
             printf(" (%d) - %s\n", i, menu[i].name);
 
-        //ref: geeksforgeeks
+        //ref: https://www.geeksforgeeks.org/c/fgets-function-in-c/
         if (fgets(input, 100, stdin) == NULL)
         {
             printf("Exiting menu.\n");
