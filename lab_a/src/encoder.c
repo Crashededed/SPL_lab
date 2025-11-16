@@ -1,6 +1,10 @@
 #include <stdio.h>
 
-int password_match(char str[], unsigned char password[])
+int debug_mode = 1;
+//ref: moodle
+unsigned char password[] = "pass";
+
+int password_match(char str[])
 {
     int i = 0;
     while (1)
@@ -15,19 +19,34 @@ int password_match(char str[], unsigned char password[])
     }
 }
 
+char *encoding_key = "0";
+int sign = 1;
+int encoding_index = 0;
+
 char encode(char c)
 {
+    int encoding_val = sign * (encoding_key[encoding_index] - '0');
+
+    // ref: modulo fixing chatGPT
+    if (c >= '0' && c <= '9')
+        c = '0' + ((c - '0' + encoding_val + 10) % 10);
+
+    if (c >= 'A' && c <= 'Z')
+        c = 'A' + ((c - 'A' + encoding_val + 26) % 26);
+
+    encoding_index++;
+    if (encoding_key[encoding_index] == '\0')
+        encoding_index = 0;
+
     return c;
 }
 
 int main(int argc, char *argv[])
 {
-    int debug_mode = 1;
-    unsigned char password[] = "pass";
     FILE *infile = stdin;
     FILE *outfile = stdout;
 
-    // debug mode handling
+    // argv handling
     for (int i = 1; i < argc; i++)
     {
         if (debug_mode)
@@ -36,24 +55,65 @@ int main(int argc, char *argv[])
         if (argv[i][0] == '-' && argv[i][1] == 'D' && argv[i][2] == '\0')
             debug_mode = 0;
 
-        if (argv[i][0] == '+' && argv[i][1] == 'D' && password_match(argv[i] + 2, password))
+        if (argv[i][0] == '+' && argv[i][1] == 'D' && password_match(argv[i] + 2))
             debug_mode = 1;
+
+        if (argv[i][0] == '-' && argv[i][1] == 'E')
+        {
+            sign = -1;
+            encoding_key = argv[i] + 2;
+            if (debug_mode)
+                fprintf(stderr, "Encoding with key %s\n", encoding_key);
+        }
+
+        if (argv[i][0] == '+' && argv[i][1] == 'E')
+        {
+            sign = 1;
+            encoding_key = argv[i] + 2;
+            if (debug_mode)
+                fprintf(stderr, "Encoding with key %s\n", encoding_key);
+        }
+
+        if (argv[i][0] == '-' && argv[i][1] == 'i')
+        {
+            infile = fopen(argv[i] + 2, "r");
+            if (infile == NULL)
+            {
+                fprintf(stderr, "Error opening input file: %s\n", argv[i] + 2);
+                return 1;
+            }
+            if (debug_mode)
+                fprintf(stderr, "Input file opened: %s\n", argv[i] + 2);
+                }
+
+        if (argv[i][0] == '-' && argv[i][1] == 'o')
+        {
+            outfile = fopen(argv[i] + 2, "w");
+            if (outfile == NULL)
+            {
+                fprintf(stderr, "Error opening output file: %s\n", argv[i] + 2);
+                return 1;
+            }
+            if (debug_mode)
+                fprintf(stderr, "Output file opened: %s\n", argv[i] + 2);
+        }
     }
 
     while (1)
     {
         // ref: https://www.geeksforgeeks.org/c/eof-and-feof-in-c/
-        // maybe c should be int?
-        char c = fgetc(infile);
+        int c = fgetc(infile);
 
         if (c == EOF && feof(infile))
         {
-            printf("deteced EOF\0");
+            if (debug_mode)
+                fprintf(stderr, "Reached end of file\n");
             break;
         }
 
         c = encode(c);
         fputc(c, outfile);
     }
+    fputc('\n', outfile);
     return 0;
 }
