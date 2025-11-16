@@ -1,5 +1,5 @@
 # All Targets
-all: bin sum_program my_echo
+all: bin encoder
 
 # Create bin directory
 bin:
@@ -17,6 +17,11 @@ my_echo: bin/my_echo.o
 	gcc -m32 -g -Wall -o bin/my_echo bin/my_echo.o
 	rm -f bin/my_echo.o
 
+# Executable "encoder" depends on encoder.o
+encoder: bin/encoder.o
+	gcc -m32 -g -Wall -o bin/encoder bin/encoder.o
+	rm -f bin/encoder.o
+
 # Depends on the source files
 bin/main.o: src/main.c
 	gcc -g -Wall -m32 -c -o bin/main.o src/main.c
@@ -26,6 +31,9 @@ bin/numbers.o: src/numbers.c
 
 bin/my_echo.o: src/my_echo.c
 	gcc -g -Wall -m32 -c -o bin/my_echo.o src/my_echo.c
+
+bin/encoder.o: src/encoder.c
+	gcc -g -Wall -m32 -c -o bin/encoder.o src/encoder.c
 
 bin/add.o: src/add.s
 	nasm -g -f elf -w+all -o bin/add.o src/add.s
