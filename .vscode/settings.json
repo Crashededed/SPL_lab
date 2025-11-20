@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "*.l3": "racket",
+        "unistd.h": "c"
+    }
+}
