@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <signal.h>
 #include "LineParser.h"
 
 // ref
@@ -55,6 +56,52 @@ void handle_redirection(cmdLine *cmd)
     }
 }
 
+// check if a given string is a number
+int is_number(const char *s)
+{
+    for (int i = 0; s[i]; i++)
+        if (s[i] < '0' || s[i] > '9')
+            return 0;
+    return 1;
+}
+
+int handle_process_commands(cmdLine *cmd)
+{
+    // check for form: command + PID
+    if (cmd->argCount != 2 || !is_number(cmd->arguments[1]))
+        return 0;
+    int pid = atoi(cmd->arguments[1]);
+    if (strcmp(cmd->arguments[0], "zzzz") == 0)
+    {
+        if (kill(pid, SIGSTOP) == -1)
+            perror("zzzz failed");
+        else
+            printf("Process %d stopped (SIGSTOP)\n", pid);
+        return 1;
+    }
+
+    if (strcmp(cmd->arguments[0], "kuku") == 0)
+    {
+        if (kill(pid, SIGCONT) == -1)
+            perror("kuku failed");
+        else
+            printf("Process %d continued (SIGCONT)\n", pid);
+
+        return 1;
+    }
+
+    if (strcmp(cmd->arguments[0], "blast") == 0)
+    {
+        if (kill(pid, SIGINT) == -1)
+            perror("blast failed");
+        else
+            printf("Process %d blasted (SIGINT)\n", pid);
+
+        return 1;
+    }
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     // argv handling
@@ -94,11 +141,22 @@ int main(int argc, char **argv)
                 continue;
             }
 
+            // process signal commands: zzzz, kuku, blast
+            if (handle_process_commands(cmd))
+            {
+                freeCmdLines(cmd);
+                continue;
+            }
+
             int child_pid = fork();
 
             // if we're the child process
             if (child_pid == 0)
             {
+                if (!cmd->blocking)
+                {
+                    setpgid(0, 0);
+                }
                 // debug info printing
                 if (debug_mode)
                 {
