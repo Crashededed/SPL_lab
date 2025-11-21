@@ -17,10 +17,6 @@ void handler(int sig)
     {
         signal(SIGTSTP, handler);
     }
-    // if (sig == SIGINT)
-    // {
-    //     signal(SIGINT, handler);
-    // }
 }
 
 int main(int argc, char **argv)

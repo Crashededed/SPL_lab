@@ -65,6 +65,7 @@ int is_number(const char *s)
     return 1;
 }
 
+// helper command to recognize and handle zzzz, kuku, blast commands
 int handle_process_commands(cmdLine *cmd)
 {
     // check for form: command + PID
