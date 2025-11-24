@@ -6,17 +6,17 @@
 
 void handler(int sig)
 {
-	printf("\nRecieved Signal : %s\n", strsignal(sig));
-	if (sig == SIGTSTP)
-	{
-		signal(SIGTSTP, SIG_DFL);
-	}
-	else if (sig == SIGCONT)
-	{
-		signal(SIGCONT, SIG_DFL);
-	}
-	signal(sig, SIG_DFL);
-	raise(sig);
+	printf("\nReceived signal: %s\n", strsignal(sig));
+    signal(sig, SIG_DFL);
+    raise(sig);
+    if (sig == SIGTSTP)
+    {
+        signal(SIGCONT, handler);
+    }
+    else if (sig == SIGCONT)
+    {
+        signal(SIGTSTP, handler);
+    }
 }
 
 int main(int argc, char **argv)
