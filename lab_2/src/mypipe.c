@@ -25,7 +25,13 @@ int main(int argc, char *argv[])
     // child
     if (pid == 0) {
         close(fd[0]);
-        write(fd[1], argv[1], strlen(argv[1]) + 1);
+        for (int i = 1; i < argc; i++)
+        {
+            write(fd[1], argv[i], strlen(argv[i]));
+            if (i < argc - 1) {
+                write(fd[1], " ", 1);
+            }
+        }
         close(fd[1]);
         exit(0);
     }

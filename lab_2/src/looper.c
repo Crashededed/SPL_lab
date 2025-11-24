@@ -7,8 +7,6 @@
 void handler(int sig)
 {
 	printf("\nReceived signal: %s\n", strsignal(sig));
-    signal(sig, SIG_DFL);
-    raise(sig);
     if (sig == SIGTSTP)
     {
         signal(SIGCONT, handler);
@@ -17,6 +15,8 @@ void handler(int sig)
     {
         signal(SIGTSTP, handler);
     }
+    signal(sig, SIG_DFL);
+    raise(sig);
 }
 
 int main(int argc, char **argv)
