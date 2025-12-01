@@ -28,16 +28,76 @@ struct link
     virus *vir;
 };
 
+void PrintHex(unsigned char *buffer, int length, FILE *file)
+{
+    for (int i = 0; i < length; i++)
+    {
+        fprintf(file, "%02X ", buffer[i]);
+    }
+}
+
+void printSignature(virus *virus, FILE *file)
+{
+    fprintf(file, "Virus name: %s\nVirus signatue length: %d\nVirus signature:\n", virus->virusName, virus->SigSize);
+    PrintHex(virus->sig, virus->SigSize, file);
+    fprintf(file, "\n");
+}
+
+void list_print(link *virus_list, FILE *file)
+{
+    link *current_link = virus_list;
+    while (current_link)
+    {
+        printSignature(current_link->vir, file);
+        printf("\n");
+        current_link = current_link->nextVirus;
+    }
+}
+
+link *list_append(link *virus_list, virus *data)
+{
+    link *new_link = malloc(sizeof(link));
+    if (!data)
+    {
+        free(new_link);
+        return virus_list;
+    }
+
+    new_link->vir = data;
+    new_link->nextVirus = virus_list; // Point to current head
+    return new_link; // New link becomes the new head
+}
+
+void list_free(link *virus_list)
+{
+    link *current = virus_list;
+    while (current)
+    {
+        link *next = current->nextVirus;
+        if (current->vir)
+        {
+            free(current->vir->sig);
+            free(current->vir);
+        }
+        free(current);
+        current = next;
+    }
+}
+
 link *SignaturesList = NULL;
 int is_big_endian = 0;
+
 virus *readSignature(FILE *file)
 {
     virus *virus = malloc(sizeof(struct virus));
 
     if (fread(virus, 1, 18, file) != 18)
     {
-        perror("Couldnt read fully virus header");
+
         free(virus);
+        if (!feof(file))
+            perror("Couldnt read fully virus header");
+
         return NULL;
     }
 
@@ -60,78 +120,6 @@ virus *readSignature(FILE *file)
     return virus;
 }
 
-// todo: refactor to use fprintf to file
-void PrintHex(unsigned char *buffer, int length)
-{
-    for (int i = 0; i < length; i++)
-    {
-        printf("%02X ", buffer[i]);
-    }
-}
-
-// todo: refactor to use fprintf to file
-void printSignature(virus *virus, FILE *file)
-{
-    printf("Virus name: %s\nVirus signatue length: %d\nVirus signature:\n", virus->virusName, virus->SigSize);
-    PrintHex(virus->sig, virus->SigSize);
-    printf("\n");
-}
-
-void list_print(link *virus_list, FILE *file)
-{
-    link *current_link = virus_list;
-    while (current_link)
-    {
-        printSignature(current_link->vir, file);
-        printf("\n");
-        current_link = current_link->nextVirus;
-    }
-}
-
-// todo: refactor to add links to start of list instead of end for O(1) complexity
-link *list_append(link *virus_list, virus *data)
-{
-    link *new_link = malloc(sizeof(link));
-    if (!data)
-    {
-        free(new_link);
-        return virus_list;
-    }
-
-    new_link->vir = data;
-    new_link->nextVirus = NULL;
-    if (!virus_list)
-    {
-        return new_link;
-    }
-
-    link *current = virus_list;
-    while (current->nextVirus != NULL)
-    {
-        current = current->nextVirus;
-    }
-    current->nextVirus = new_link;
-
-    return virus_list;
-}
-
-void list_free(link *virus_list)
-{
-    link *current = virus_list;
-    while (current)
-    {
-        link *next = current->nextVirus;
-        if (current->vir)
-        {
-            free(current->vir->sig);
-            free(current->vir);
-        }
-        free(current);
-        current = next;
-    }
-}
-
-// todo: make sure to clear previous signatures on load
 void LoadSignatures()
 {
     char filename[MAX_FILENAME] = {0};
@@ -141,6 +129,12 @@ void LoadSignatures()
 
     filename[strcspn(filename, "\n")] = '\0';
     FILE *file = fopen(filename, "rb");
+
+    if (!file)
+    {
+        perror("Could not open signatures file");
+        return;
+    }
     char magic_number[5] = {0};
 
     if (fread(magic_number, 1, 4, file) != 4)
@@ -164,7 +158,10 @@ void LoadSignatures()
         return;
     }
 
-    while (!feof(file))
+    list_free(SignaturesList);
+    SignaturesList = NULL;
+
+    while (1)
     {
         virus *next_virus = readSignature(file);
         if (!next_virus)
@@ -175,7 +172,6 @@ void LoadSignatures()
     fclose(file);
 }
 
-// todo: don't need to print to file, just print to stdout
 void PrintSignatures()
 {
     if (!SignaturesList)
@@ -185,7 +181,7 @@ void PrintSignatures()
     }
 
     char filename[MAX_FILENAME] = {0};
-    printf("Enter file name for output:\n");
+    printf("Press enter for console output or enter file path:\n");
     fgets(filename, MAX_FILENAME, stdin);
 
     filename[strcspn(filename, "\n")] = '\0';
@@ -196,6 +192,11 @@ void PrintSignatures()
     else
     {
         FILE *file = fopen(filename, "wb");
+        if (!file)
+        {
+            perror("Could not open file for writing");
+            return;
+        }
         list_print(SignaturesList, file);
         fclose(file);
     }
@@ -211,6 +212,13 @@ void detect_virus()
 
     unsigned char *buffer = (unsigned char *)malloc(10000);
     FILE *file = fopen(filename, "rb");
+    if (!file)
+    {
+        perror("Could not open file to scan");
+        free(buffer);
+        return;
+    }
+
     int filesize = fread(buffer, 1, 10000, file);
     fclose(file);
 
@@ -260,7 +268,17 @@ void fixFile()
 
     unsigned char *buffer = (unsigned char *)malloc(10000);
     FILE *file = fopen(filename, "rb");
+
+    if (!file)
+    {
+        perror("Could not open file to fix");
+        free(buffer);
+        return;
+    }
+    
     int filesize = fread(buffer, 1, 10000, file);
+
+    fclose(file);
 
     for (int i = 0; i < filesize; i++)
     {
@@ -280,7 +298,6 @@ void fixFile()
             current = current->nextVirus;
         }
     }
-    fclose(file);
     free(buffer);
 }
 
@@ -308,9 +325,8 @@ int main(int argc, char **argv)
 {
     int menu_size = 0;
     while (menu[menu_size].name != NULL)
-    {
         menu_size++;
-    }
+
     while (1)
     {
         char input[16];
@@ -336,7 +352,6 @@ int main(int argc, char **argv)
             continue;
         }
 
-        // todo: fix menu bounds check
         //  Validate choice
         if (choice < 0 || choice >= menu_size)
         {
