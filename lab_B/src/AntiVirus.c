@@ -60,7 +60,7 @@ virus *readSignature(FILE *file)
     return virus;
 }
 
-//todo: refactor to use fprintf to file
+// todo: refactor to use fprintf to file
 void PrintHex(unsigned char *buffer, int length)
 {
     for (int i = 0; i < length; i++)
@@ -69,7 +69,7 @@ void PrintHex(unsigned char *buffer, int length)
     }
 }
 
-//todo: refactor to use fprintf to file
+// todo: refactor to use fprintf to file
 void printSignature(virus *virus, FILE *file)
 {
     printf("Virus name: %s\nVirus signatue length: %d\nVirus signature:\n", virus->virusName, virus->SigSize);
@@ -88,7 +88,7 @@ void list_print(link *virus_list, FILE *file)
     }
 }
 
-//todo: refactor to add links to start of list instead of end for O(1) complexity
+// todo: refactor to add links to start of list instead of end for O(1) complexity
 link *list_append(link *virus_list, virus *data)
 {
     link *new_link = malloc(sizeof(link));
@@ -131,7 +131,7 @@ void list_free(link *virus_list)
     }
 }
 
-//todo: make sure to clear previous signatures on load
+// todo: make sure to clear previous signatures on load
 void LoadSignatures()
 {
     char filename[MAX_FILENAME] = {0};
@@ -175,7 +175,7 @@ void LoadSignatures()
     fclose(file);
 }
 
-//todo: don't need to print to file, just print to stdout
+// todo: don't need to print to file, just print to stdout
 void PrintSignatures()
 {
     if (!SignaturesList)
@@ -212,6 +212,7 @@ void detect_virus()
     unsigned char *buffer = (unsigned char *)malloc(10000);
     FILE *file = fopen(filename, "rb");
     int filesize = fread(buffer, 1, 10000, file);
+    fclose(file);
 
     for (int i = 0; i < filesize; i++)
     {
@@ -226,6 +227,55 @@ void detect_virus()
             if (!memcmp(buffer + i, current->vir->sig, current->vir->SigSize))
             {
                 printf("virus location: %d\nvirus name: %s\nvirus signature size: %d\n", i, current->vir->virusName, current->vir->SigSize);
+            }
+            current = current->nextVirus;
+        }
+    }
+    free(buffer);
+}
+
+void neutralize_virus(char *fileName, int signatureOffset)
+{
+    FILE *file = fopen(fileName, "r+b");
+    if (!file)
+    {
+        perror("Could not open file to neutralize virus");
+        return;
+    }
+
+    fseek(file, signatureOffset, SEEK_SET);
+    unsigned char ret = 0xC3; // RET instruction in x86
+    fwrite(&ret, 1, 1, file);
+
+    fclose(file);
+}
+
+void fixFile()
+{
+    char filename[MAX_FILENAME] = {0};
+
+    printf("Enter a file name to scan for viruses and remove them:\n");
+    fgets(filename, MAX_FILENAME, stdin);
+    filename[strcspn(filename, "\n")] = '\0';
+
+    unsigned char *buffer = (unsigned char *)malloc(10000);
+    FILE *file = fopen(filename, "rb");
+    int filesize = fread(buffer, 1, 10000, file);
+
+    for (int i = 0; i < filesize; i++)
+    {
+        link *current = SignaturesList;
+        while (current)
+        {
+            if (i + current->vir->SigSize > filesize)
+            {
+                current = current->nextVirus;
+                continue;
+            }
+            if (!memcmp(buffer + i, current->vir->sig, current->vir->SigSize))
+            {
+                printf("virus location: %d\nvirus name: %s\nvirus signature size: %d\n", i, current->vir->virusName, current->vir->SigSize);
+                neutralize_virus(filename, i);
             }
             current = current->nextVirus;
         }
@@ -249,7 +299,7 @@ struct fun_desc menu[] =
     {{"Load signatures", LoadSignatures},
      {"Print signatures", PrintSignatures},
      {"Detect Viruses", detect_virus},
-     {"Fix file", stub},
+     {"Fix file", fixFile},
      {"AI analysis of file", stub},
      {"Quit", Quit},
      {NULL, NULL}};
@@ -286,8 +336,8 @@ int main(int argc, char **argv)
             continue;
         }
 
-        //todo: fix menu bounds check
-        // Validate choice
+        // todo: fix menu bounds check
+        //  Validate choice
         if (choice < 0 || choice >= menu_size)
         {
             printf("Choice out of bounds. Try again.\n");
