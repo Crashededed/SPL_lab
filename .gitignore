@@ -56,3 +56,5 @@ dkms.conf
 
 /lab_a/bin
 /lab_2/bin
+/lab_B/bin
+/.vscode
