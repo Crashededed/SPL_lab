@@ -3,21 +3,28 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
-int main(){
+int main()
+{
     int pipefd[2];
     pid_t cpid1, cpid2;
+
     fprintf(stderr, "(parent_process>forking…)\n");
-    if(pipe(pipefd) == -1){
+    if (pipe(pipefd) == -1)
+    {
         perror("pipe");
         exit(1);
     }
+
     // first child
     cpid1 = fork();
-    if(cpid1 < 0){
+    if (cpid1 < 0)
+    {
         perror("fork");
         exit(1);
     }
-    if(cpid1 == 0){
+
+    if (cpid1 == 0)
+    {
         fprintf(stderr, "(child1>redirecting stdout to the write end of the pipe…)\n");
         close(STDOUT_FILENO);
         dup(pipefd[1]);
@@ -29,16 +36,21 @@ int main(){
         perror("execvp");
         exit(1);
     }
+
     fprintf(stderr, "(parent_process>created process with id: %d)\n", cpid1);
     fprintf(stderr, "(parent_process>closing the write end of the pipe…)\n");
     close(pipefd[1]);
+
     // second child
     cpid2 = fork();
-    if (cpid2 < 0) {
+    if (cpid2 < 0)
+    {
         perror("fork");
         exit(1);
     }
-    if (cpid2 == 0) {
+
+    if (cpid2 == 0)
+    {
         fprintf(stderr, "(child2>redirecting stdin to the read end of the pipe…)\n");
         close(STDIN_FILENO);
         dup(pipefd[0]);

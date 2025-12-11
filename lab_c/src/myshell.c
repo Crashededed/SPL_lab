@@ -8,7 +8,6 @@
 #include <signal.h>
 #include "LineParser.h"
 
-// ref
 int execute(cmdLine *pCmdLine)
 {
     return execvp(pCmdLine->arguments[0], pCmdLine->arguments);
@@ -103,36 +102,43 @@ int handle_process_commands(cmdLine *cmd)
     return 0;
 }
 
-void execute_pipeline(cmdLine *left){
+void execute_pipeline(cmdLine *left)
+{
     cmdLine *right = left->next;
 
     int pipefd[2];
-    if (pipe(pipefd) == -1) {
+    if (pipe(pipefd) == -1)
+    {
         perror("pipe");
         return;
     }
     pid_t cpid1, cpid2;
 
     cpid1 = fork();
-    if (cpid1 < 0) {
+    if (cpid1 < 0)
+    {
         perror("fork");
         close(pipefd[0]);
         close(pipefd[1]);
         return;
     }
-    if (cpid1 == 0) {
+    if (cpid1 == 0)
+    {
         // CHILD 1
-        if (!left->blocking) {
+        if (!left->blocking)
+        {
             setpgid(0, 0);
         }
 
-        if (debug_mode) {
+        if (debug_mode)
+        {
             fprintf(stderr, "PID: %d (child1)\n", getpid());
             fprintf(stderr, "Executing command (left): %s\n", left->arguments[0]);
         }
 
         // connect stdout to pipe write end
-        if (dup2(pipefd[1], STDOUT_FILENO) == -1) {
+        if (dup2(pipefd[1], STDOUT_FILENO) == -1)
+        {
             perror("dup2 child1 stdout");
             _exit(1);
         }
@@ -144,7 +150,8 @@ void execute_pipeline(cmdLine *left){
         handle_redirection(left);
 
         // exec left cmd
-        if (execute(left) == -1) {
+        if (execute(left) == -1)
+        {
             perror("execvp left");
             _exit(1);
         }
@@ -152,7 +159,8 @@ void execute_pipeline(cmdLine *left){
 
     // ----- SECOND CHILD (right side of |) -----
     cpid2 = fork();
-    if (cpid2 < 0) {
+    if (cpid2 < 0)
+    {
         perror("fork");
         // parent: close pipe ends and reap first child
         close(pipefd[0]);
@@ -160,19 +168,23 @@ void execute_pipeline(cmdLine *left){
         waitpid(cpid1, NULL, 0);
         return;
     }
-    if (cpid2 == 0) {
+    if (cpid2 == 0)
+    {
         // CHILD 2
-        if (!left->blocking) {
+        if (!left->blocking)
+        {
             setpgid(0, 0);
         }
 
-        if (debug_mode) {
+        if (debug_mode)
+        {
             fprintf(stderr, "PID: %d (child2)\n", getpid());
             fprintf(stderr, "Executing command (right): %s\n", right->arguments[0]);
         }
 
         // connect stdin to pipe read end
-        if (dup2(pipefd[0], STDIN_FILENO) == -1) {
+        if (dup2(pipefd[0], STDIN_FILENO) == -1)
+        {
             perror("dup2 child2 stdin");
             _exit(1);
         }
@@ -184,7 +196,8 @@ void execute_pipeline(cmdLine *left){
         handle_redirection(right);
 
         // exec right cmd
-        if (execute(right) == -1) {
+        if (execute(right) == -1)
+        {
             perror("execvp right");
             _exit(1);
         }
@@ -194,10 +207,47 @@ void execute_pipeline(cmdLine *left){
     close(pipefd[0]);
     close(pipefd[1]);
 
-    if (left->blocking) {
+    if (left->blocking)
+    {
         // Wait for BOTH children, in any order or in order – assignment says order of execution, so:
         waitpid(cpid1, NULL, 0);
         waitpid(cpid2, NULL, 0);
+    }
+}
+
+#define TERMINATED -1
+#define RUNNING 1
+#define SUSPENDED 0
+
+typedef struct process
+{
+    cmdLine *cmd;         /* the parsed command line*/
+    pid_t pid;            /* the process id that is running the command*/
+    int status;           /* status of the process: RUNNING/SUSPENDED/TERMINATED */
+    struct process *next; /* next process in chain */
+} process;
+
+void addProcess(process **process_list, cmdLine *cmd, pid_t pid)
+{
+    struct process *new_process = malloc(sizeof(process));
+    new_process->cmd = cmd;
+    new_process->pid = pid;
+    new_process->status = RUNNING;
+    new_process->next = *process_list;
+    *process_list = new_process;
+}
+
+void printProcessList(process **process_list)
+{
+    struct process *current = *process_list;
+    while (current != NULL)
+    {
+        printf("PID: %d, Command: %s, Status: %s\n",
+               current->pid,
+               current->cmd->arguments[0],
+               current->status == RUNNING ? "RUNNING" : current->status == SUSPENDED ? "SUSPENDED"
+                                                                                     : "TERMINATED");
+        current = current->next;
     }
 }
 
@@ -247,11 +297,13 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            if (cmd->next != NULL) {
+            if (cmd->next != NULL)
+            {
                 // ------- PIPELINE CASE -------
 
                 // Only support a single pipe: cmd | cmd
-                if (cmd->next->next != NULL) {
+                if (cmd->next->next != NULL)
+                {
                     fprintf(stderr, "Error: only a single pipe is supported\n");
                     freeCmdLines(cmd);
                     continue;
@@ -260,13 +312,15 @@ int main(int argc, char **argv)
                 cmdLine *right = cmd->next;
 
                 // Check illegal redirections
-                if (left->outputRedirect != NULL) {
+                if (left->outputRedirect != NULL)
+                {
                     fprintf(stderr, "Error: cannot redirect output of left-hand side of a pipeline\n");
                     freeCmdLines(cmd);
                     continue;
                 }
 
-                if (right->inputRedirect != NULL) {
+                if (right->inputRedirect != NULL)
+                {
                     fprintf(stderr, "Error: cannot redirect input of right-hand side of a pipeline\n");
                     freeCmdLines(cmd);
                     continue;
