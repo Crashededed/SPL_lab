@@ -8,12 +8,122 @@
 #include <signal.h>
 #include "LineParser.h"
 
+int debug_mode = 0;
+
+#define TERMINATED -1
+#define RUNNING 1
+#define SUSPENDED 0
+
+typedef struct process
+{
+    cmdLine *cmd;         /* the parsed command line*/
+    pid_t pid;            /* the process id that is running the command*/
+    int status;           /* status of the process: RUNNING/SUSPENDED/TERMINATED */
+    struct process *next; /* next process in chain */
+} process;
+
+void addProcess(process **process_list, cmdLine *cmd, pid_t pid)
+{
+    struct process *new_process = malloc(sizeof(process));
+    if (new_process == NULL)
+    {
+        perror("malloc failed");
+        return;
+    }
+    new_process->cmd = cmd;
+    new_process->pid = pid;
+    new_process->status = RUNNING;
+    new_process->next = *process_list;
+    *process_list = new_process;
+}
+
+void updateProcessStatus(process *process_list, int pid, int status)
+{
+    process *curr = process_list;
+    while (curr != NULL)
+    {
+        if (curr->pid == pid)
+        {
+            curr->status = status;
+            return;
+        }
+        curr = curr->next;
+    }
+}
+
+void updateProcessList(process **process_list)
+{
+    process *curr = *process_list;
+    while (curr != NULL)
+    {
+        // If it returns the PID, the process is a ZOMBIE (finished).
+        // If it returns 0, the process is still running.
+        // If it returns -1, the process is gone (or error).
+        pid_t result = waitpid(curr->pid, NULL, WNOHANG);
+
+        if (result == -1 || result == curr->pid)
+        {
+            updateProcessStatus(*process_list, curr->pid, TERMINATED);
+        }
+        curr = curr->next;
+    }
+}
+
+void printProcessList(process **process_list)
+{
+    printf("%-10s %-15s %-10s\n", "PID", "Command", "STATUS");
+    updateProcessList(process_list);
+
+    process *curr = *process_list;
+    process *prev = NULL;
+
+    while (curr != NULL)
+    {
+        printf("%-10d %-15s %-10s\n",
+               curr->pid,
+               curr->cmd->arguments[0],
+               curr->status == RUNNING ? "RUNNING" : curr->status == SUSPENDED ? "SUSPENDED"
+                                                                               : "TERMINATED");
+
+        if (curr->status == TERMINATED)
+        {
+            // Remove from list
+            if (prev == NULL)
+                *process_list = curr->next;
+            else
+                prev->next = curr->next;
+
+            process *to_delete = curr;
+            curr = curr->next;
+
+            // Free memory
+            freeCmdLines(to_delete->cmd);
+            free(to_delete);
+        }
+        else
+        {
+            prev = curr;
+            curr = curr->next;
+        }
+    }
+}
+
+void freeProcessList(process **process_list)
+{
+    struct process *current = *process_list;
+    while (current != NULL)
+    {
+        struct process *next = current->next;
+        freeCmdLines(current->cmd);
+        free(current);
+        current = next;
+    }
+}
+
 int execute(cmdLine *pCmdLine)
 {
     return execvp(pCmdLine->arguments[0], pCmdLine->arguments);
 }
-
-int debug_mode = 0;
 
 // Helper function to handle Input/Output redirection
 void handle_redirection(cmdLine *cmd)
@@ -65,7 +175,7 @@ int is_number(const char *s)
 }
 
 // helper command to recognize and handle zzzz, kuku, blast commands
-int handle_process_commands(cmdLine *cmd)
+int handle_process_commands(cmdLine *cmd, process **process_list)
 {
     // check for form: command + PID
     if (cmd->argCount != 2 || !is_number(cmd->arguments[1]))
@@ -76,7 +186,10 @@ int handle_process_commands(cmdLine *cmd)
         if (kill(pid, SIGSTOP) == -1)
             perror("zzzz failed");
         else
-            printf("Process %d stopped (SIGSTOP)\n", pid);
+        {
+            printf("Process %d suspended (SIGSTOP)\n", pid);
+            updateProcessStatus(*process_list, pid, SUSPENDED);
+        }
         return 1;
     }
 
@@ -85,8 +198,10 @@ int handle_process_commands(cmdLine *cmd)
         if (kill(pid, SIGCONT) == -1)
             perror("kuku failed");
         else
+        {
             printf("Process %d continued (SIGCONT)\n", pid);
-
+            updateProcessStatus(*process_list, pid, RUNNING);
+        }
         return 1;
     }
 
@@ -96,15 +211,17 @@ int handle_process_commands(cmdLine *cmd)
             perror("blast failed");
         else
             printf("Process %d blasted (SIGINT)\n", pid);
-
+            // no need to update status to TERMINATED here,
+            // it will be updated in the next printProcessList call
         return 1;
     }
     return 0;
 }
 
-void execute_pipeline(cmdLine *left)
+void execute_pipeline(cmdLine *left, process **process_list)
 {
     cmdLine *right = left->next;
+    left->next = NULL; // detach right side to avoid double free
 
     int pipefd[2];
     if (pipe(pipefd) == -1)
@@ -156,6 +273,7 @@ void execute_pipeline(cmdLine *left)
             _exit(1);
         }
     }
+    addProcess(process_list, left, cpid1);
 
     // ----- SECOND CHILD (right side of |) -----
     cpid2 = fork();
@@ -202,7 +320,8 @@ void execute_pipeline(cmdLine *left)
             _exit(1);
         }
     }
-    // ----- PARENT -----
+    addProcess(process_list, right, cpid2);
+
     // Most important thing: close both ends in parent
     close(pipefd[0]);
     close(pipefd[1]);
@@ -215,42 +334,6 @@ void execute_pipeline(cmdLine *left)
     }
 }
 
-#define TERMINATED -1
-#define RUNNING 1
-#define SUSPENDED 0
-
-typedef struct process
-{
-    cmdLine *cmd;         /* the parsed command line*/
-    pid_t pid;            /* the process id that is running the command*/
-    int status;           /* status of the process: RUNNING/SUSPENDED/TERMINATED */
-    struct process *next; /* next process in chain */
-} process;
-
-void addProcess(process **process_list, cmdLine *cmd, pid_t pid)
-{
-    struct process *new_process = malloc(sizeof(process));
-    new_process->cmd = cmd;
-    new_process->pid = pid;
-    new_process->status = RUNNING;
-    new_process->next = *process_list;
-    *process_list = new_process;
-}
-
-void printProcessList(process **process_list)
-{
-    struct process *current = *process_list;
-    while (current != NULL)
-    {
-        printf("PID: %d, Command: %s, Status: %s\n",
-               current->pid,
-               current->cmd->arguments[0],
-               current->status == RUNNING ? "RUNNING" : current->status == SUSPENDED ? "SUSPENDED"
-                                                                                     : "TERMINATED");
-        current = current->next;
-    }
-}
-
 int main(int argc, char **argv)
 {
     // argv handling
@@ -259,6 +342,8 @@ int main(int argc, char **argv)
         if (strcmp(argv[i], "-d") == 0)
             debug_mode = 1;
     }
+
+    struct process *process_list = NULL;
 
     while (1)
     {
@@ -278,6 +363,12 @@ int main(int argc, char **argv)
             if (strcmp(userinput, "quit\n") == 0)
                 break;
 
+            if (strcmp(userinput, "procs\n") == 0)
+            {
+                printProcessList(&process_list);
+                continue;
+            }
+
             cmdLine *cmd = parseCmdLines(userinput);
 
             // cd handling
@@ -291,7 +382,7 @@ int main(int argc, char **argv)
             }
 
             // process signal commands: zzzz, kuku, blast
-            if (handle_process_commands(cmd))
+            if (handle_process_commands(cmd, &process_list))
             {
                 freeCmdLines(cmd);
                 continue;
@@ -326,10 +417,10 @@ int main(int argc, char **argv)
                     continue;
                 }
                 // Valid pipeline: execute it
-                execute_pipeline(left);
+                execute_pipeline(left, &process_list);
 
                 // Parent: free the whole cmd list
-                freeCmdLines(cmd);
+                // freeCmdLines(cmd);
                 continue;
             }
 
@@ -363,13 +454,16 @@ int main(int argc, char **argv)
             // if we're the parent process
             else
             {
+                // add to process list
+                addProcess(&process_list, cmd, child_pid);
                 if (cmd->blocking)
                     waitpid(child_pid, NULL, 0);
             }
 
-            freeCmdLines(cmd);
+            // freeCmdLines(cmd);
         }
     }
 
+    freeProcessList(&process_list);
     return 0;
 }
