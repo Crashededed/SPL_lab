@@ -1,8 +1,15 @@
 global main
 extern strlen
+extern system_call
 
 section .rodata
     newline: db 10          ; newline character
+    SYS_OPEN    equ 5
+    SYS_WRITE   equ 4
+    SYS_READ    equ 3
+    O_RDONLY    equ 0
+    O_RWC       equ 577   ; Write | Create | Trunc
+    PERMS       equ 0644o
 
 section .data
     Infile  dd 0            ; STDIN file descriptor (0)
@@ -15,56 +22,100 @@ main:
     mov ecx, [ebp+8]        ; argc (argument count)
     mov edx, [ebp+12]       ; argv (argument vector pointer)
 
-Next:
-    pushad                  ; save general-purpose registers
+NextArgv:
 
-    ; Get pointer to current argv string
-    mov eax, [edx]          ; eax = pointer to argv[0] (current string)
+    ;argv printing:
+    mov eax, [edx]          ; eax = pointer to argv[i] (current string)
     mov ebx, eax            ; ebx = pointer (preserve for write)
 
-    ; Call strlen(pointer) to get string length -> eax
+    pushad                  ; save registers
+
     push eax                ; push pointer argument for strlen
-    call strlen
+    call strlen             ;eax = len(argv[i])
     add esp, 4              ; clean up stack after call
 
-    ; Write the argv string to stdout
-    mov ecx, ebx            ; ecx = pointer to string
-    mov ebx, 1              ; ebx = file descriptor (stdout)
-    mov edx, eax            ; edx = length of string (returned by strlen)
-    mov eax, 4              ; eax = sys_write
-    int 0x80
+    ;print argv[i]
+    ; system_call(SYS_WRITE, STDOUT, buffer, length)
+    
+    push eax                ; Arg 3: Length (from EAX)
+    push ebx                ; Arg 2: Buffer (from EBX)
+    push dword [Outfile]            ; Arg 1: FD (STDOUT)
+    push SYS_WRITE          ; Syscall Number
+    call system_call
+    add esp, 16             ; Clean stack
 
     ; Write a newline to stdout
-    mov ebx, 1              ; ebx = file descriptor (stdout)
-    mov ecx, newline        ; ecx = pointer to newline
-    mov edx, 1              ; edx = length (1 byte)
-    mov eax, 4              ; eax = sys_write
-    int 0x80
+    push 1                  ; Arg 3: Length 
+    push newline            ; Arg 2: Buffer 
+    push dword [Outfile]           ; Arg 1: FD (STDOUT)
+    push SYS_WRITE          ; Syscall Number
+    call system_call
+    add esp, 16             ; Clean stack
 
-    popad                   ; restore registers saved by pushad
+    ;input/output file handling:
+    popad                   ; restore registers saved by pushad, ebx is pointing at argv[i]
+
+    cmp byte [ebx], '-'     ; Check for flag prefix
+    jne LoopIncrement       ; If not '-', skip
+
+    cmp byte [ebx+1], 'i'
+    je  HandleInput
+    
+    cmp byte [ebx+1], 'o'
+    je  HandleOutput
+    
+    jmp LoopIncrement       ; Matches '-' but not 'i' or 'o', skip
+
+
+HandleInput:
+    lea ebx, [ebx + 2] ;skip "-i"
+
+    ; system_call(SYS_OPEN, filename, O_RDONLY, 0)
+    push 0                  ; Arg 3: Mode (Ignored for read)
+    push O_RDONLY           ; Arg 2: Flags
+    push ebx                ; Arg 1: Filename
+    push SYS_OPEN           ; Syscall Number
+    call system_call
+    add esp, 16
+    
+    mov [Infile], eax       ; Update Global Var (Result is in EAX)
+    jmp LoopIncrement
+
+HandleOutput:
+    ; system_call(SYS_OPEN, filename, O_RWC, PERMS)
+    lea ebx, [ebx+2]        ; Skip "-o"
+    
+    push PERMS              ; Arg 3: Mode (0644)
+    push O_RWC              ; Arg 2: Flags
+    push ebx                ; Arg 1: Filename
+    push SYS_OPEN           ; Syscall Number
+    call system_call
+    add esp, 16
+    
+    mov [Outfile], eax      ; Update Global Var
+    jmp LoopIncrement
+
+LoopIncrement:
     add edx, 4              ; advance argv pointer to next string
     dec ecx                 ; decrement argc
-    jnz Next                ; loop while argc != 0
+    jnz NextArgv             ; loop while argc != 0
 
     jmp Encoder
 
-; ------------------------
-; Encoder: encode stdin -> stdout
-; ------------------------
 Encoder:
     sub esp, 4              ; allocate 4 bytes on the stack for input char
 
 read_loop:
-    ; Syscall: read(fd, buf, len)
-    mov eax, 3              ; eax = sys_read
-    mov ebx, [Infile]       ; ebx = file descriptor (stdin)
-    mov ecx, esp            ; ecx = buffer address (stack slot)
-    mov edx, 1              ; edx = number of bytes to read
-    int 0x80
+    ; system_call(SYS_READ, Infile, buf, 1)
+    push 1                  ; Arg 3: Length
+    lea eax, [esp+4]        ; Calculate buffer address (current stack + offset)
+    push eax                ; Arg 2: Buffer Address
+    push dword [Infile]     ; Arg 1: FD
+    push SYS_READ           ; Syscall Number
+    call system_call
+    add esp, 16
 
     ; Check for End Of File (EOF)
-    ; sys_read returns number of bytes read in EAX.
-    ; If EAX == 0 -> EOF, if EAX < 0 -> error.
     cmp eax, 0
     jle end_program         ; if 0 or negative, exit loop
 
@@ -75,15 +126,18 @@ read_loop:
     jg  print_char          ; if char > 'Z', skip encoding
 
     ; Uppercase letter: add 3 to the character
+    ;todo: wrap around 
     add byte [esp], 3
 
 print_char:
     ; Syscall: write(fd, buf, len)
-    mov eax, 4              ; eax = sys_write
-    mov ebx, [Outfile]      ; ebx = file descriptor (stdout)
-    mov ecx, esp            ; ecx = buffer address
-    mov edx, 1              ; edx = length (1 byte)
-    int 0x80
+    push 1                  ; Arg 3
+    lea eax, [esp+4]        ; Arg 2: Buffer (Fix offset due to push)
+    push eax
+    push dword [Outfile]    ; Arg 1
+    push SYS_WRITE
+    call system_call
+    add esp, 16
 
     ; Continue reading next character
     jmp read_loop
