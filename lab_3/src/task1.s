@@ -1,5 +1,4 @@
-global main
-extern strlen
+
 extern system_call
 
 section .rodata
