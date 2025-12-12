@@ -10,6 +10,96 @@
 
 int debug_mode = 0;
 
+// check if a given string is a number
+int is_number(const char *s)
+{
+    for (int i = 0; s[i]; i++)
+        if (s[i] < '0' || s[i] > '9')
+            return 0;
+    return 1;
+}
+
+#define HISTLEN 10
+
+char *history[HISTLEN];
+int hist_head = 0; // Index of the oldest command
+int hist_tail = 0; // Index of the next available slot
+int hist_count = 0;
+
+void addToHistory(char *cmd)
+{
+    // if queue is full we overwrite the last entry moving indices forward
+    if (hist_count == HISTLEN)
+    {
+        free(history[hist_tail]);
+        hist_head = (hist_head + 1) % HISTLEN;
+    }
+    else
+        hist_count++;
+
+    char *copy = strdup(cmd);
+    history[hist_tail] = copy;
+    hist_tail = (hist_tail + 1) % HISTLEN;
+}
+
+void freeHistory()
+{
+    int current = hist_head;
+    while (hist_count > 0)
+    {
+        free(history[current]);
+        history[current] = NULL;
+        current = (current + 1) % HISTLEN;
+        hist_count--;
+    }
+}
+
+void printHistory()
+{
+    int current = hist_head;
+    for (int i = hist_count; i > 0; i--)
+    {
+        printf("%d: %s", i, history[current]);
+        current = (current + 1) % HISTLEN;
+    }
+}
+
+int historyAccess(char *cmd)
+{
+    int index;
+
+    if (strcmp(cmd, "!!\n") == 0)
+    {
+        if (hist_count == 0)
+        {
+            fprintf(stderr, "Error: History is empty\n");
+            return -1;
+        }
+        index = (hist_tail - 1 + HISTLEN) % HISTLEN;
+    }
+    else
+    {
+        int offset = atoi(cmd + 1);
+        if (offset == 0)
+        {
+            fprintf(stderr, "Error: invalid history command\n");
+            return -1;
+        }
+
+        else if (offset < 0 || offset > hist_count)
+        {
+            fprintf(stderr, "Error: invalid history index\n");
+            return -1;
+        }
+        index = (hist_tail - offset + HISTLEN) % HISTLEN;
+    }
+
+    char *histCmd = history[index];
+    printf("%s", histCmd);
+    strcpy(cmd, histCmd);
+    return 1;
+}
+
 #define TERMINATED -1
 #define RUNNING 1
 #define SUSPENDED 0
@@ -165,13 +255,46 @@ void handle_redirection(cmdLine *cmd)
     }
 }
 
-// check if a given string is a number
-int is_number(const char *s)
+// executes non pipeline command, handles forking
+void execute_single(cmdLine *cmd, process **process_list)
 {
-    for (int i = 0; s[i]; i++)
-        if (s[i] < '0' || s[i] > '9')
-            return 0;
-    return 1;
+    int child_pid = fork();
+
+    if (child_pid < 0)
+    {
+        perror("fork failed");
+        freeCmdLines(cmd);
+        return;
+    }
+
+    if (child_pid == 0)
+    {
+        // Child process
+        if (!cmd->blocking)
+            setpgid(0, 0);
+
+        if (debug_mode)
+        {
+            fprintf(stderr, "PID: %d\n", getpid());
+            fprintf(stderr, "Executing command: %s\n", cmd->arguments[0]);
+        }
+
+        handle_redirection(cmd);
+
+        if (execute(cmd) == -1)
+        {
+            freeCmdLines(cmd);
+            perror("execv failed");
+            _exit(1);
+        }
+    }
+    else
+    {
+        // Parent process
+        addProcess(process_list, cmd, child_pid);
+        if (cmd->blocking)
+            waitpid(child_pid, NULL, 0);
+    }
 }
 
 // helper command to recognize and handle zzzz, kuku, blast commands
@@ -211,11 +334,38 @@ int handle_process_commands(cmdLine *cmd, process **process_list)
             perror("blast failed");
         else
             printf("Process %d blasted (SIGINT)\n", pid);
-            // no need to update status to TERMINATED here,
-            // it will be updated in the next printProcessList call
+        // no need to update status to TERMINATED here,
+        // it will be updated in the next printProcessList call
         return 1;
     }
     return 0;
+}
+
+// Returns 1 if valid pipeline, 0 if not a pipeline, -1 if invalid pipeline
+int validate_pipeline(cmdLine *cmd)
+{
+    if (cmd->next == NULL)
+        return 0;
+
+    if (cmd->next->next != NULL)
+    {
+        fprintf(stderr, "Error: only a single pipe is supported\n");
+        return -1;
+    }
+
+    if (cmd->outputRedirect != NULL)
+    {
+        fprintf(stderr, "Error: cannot redirect output of left-hand side of a pipeline\n");
+        return -1;
+    }
+
+    if (cmd->next->inputRedirect != NULL)
+    {
+        fprintf(stderr, "Error: cannot redirect input of right-hand side of a pipeline\n");
+        return -1;
+    }
+
+    return 1;
 }
 
 void execute_pipeline(cmdLine *left, process **process_list)
@@ -334,6 +484,49 @@ void execute_pipeline(cmdLine *left, process **process_list)
     }
 }
 
+// Returns 1 if cd handled properly, 0 otherwise
+int handle_cd(cmdLine *cmd)
+{
+    if (strcmp(cmd->arguments[0], "cd") != 0)
+        return 0;
+
+    if (cmd->argCount < 2 || chdir(cmd->arguments[1]) != 0)
+        fprintf(stderr, "cd failed\n");
+
+    return 1;
+}
+// Return values: 0 = continue loop, 1 = quit, -1 = skip (already handled)
+int handle_userinput(char *userinput, process **process_list)
+{
+    if (userinput[0] == '\n')
+        return -1;
+
+    if (userinput[0] == '!')
+    {
+        if (historyAccess(userinput) == -1)
+            return -1;
+    }
+
+    addToHistory(userinput);
+
+    if (strcmp(userinput, "quit\n") == 0)
+        return 1;
+
+    if (strcmp(userinput, "procs\n") == 0)
+    {
+        printProcessList(process_list);
+        return -1;
+    }
+
+    if (strcmp(userinput, "history\n") == 0)
+    {
+        printHistory();
+        return -1;
+    }
+
+    return 0; // Continue to command execution
+}
+
 int main(int argc, char **argv)
 {
     // argv handling
@@ -360,23 +553,21 @@ int main(int argc, char **argv)
         char userinput[2048];
         if (fgets(userinput, 2048, stdin) != NULL)
         {
-            if (strcmp(userinput, "quit\n") == 0)
-                break;
 
-            if (strcmp(userinput, "procs\n") == 0)
-            {
-                printProcessList(&process_list);
+            int result = handle_userinput(userinput, &process_list);
+            if (result == 1) // quit
+                break;
+            if (result == -1) // history/procs/empty
                 continue;
-            }
 
             cmdLine *cmd = parseCmdLines(userinput);
 
-            // cd handling
-            if (strcmp(cmd->arguments[0], "cd") == 0)
-            {
-                if (chdir(cmd->arguments[1]) != 0)
-                    fprintf(stderr, "cd failed\n");
+            if (cmd == NULL)
+                continue;
 
+            // cd handling
+            if (handle_cd(cmd))
+            {
                 freeCmdLines(cmd);
                 continue;
             }
@@ -388,82 +579,28 @@ int main(int argc, char **argv)
                 continue;
             }
 
-            if (cmd->next != NULL)
+            // checks whether valid pipeline/non pipeline command
+            int pipe_result = validate_pipeline(cmd);
+            if (pipe_result == -1) // invalid pipeline
             {
-                // ------- PIPELINE CASE -------
-
-                // Only support a single pipe: cmd | cmd
-                if (cmd->next->next != NULL)
-                {
-                    fprintf(stderr, "Error: only a single pipe is supported\n");
-                    freeCmdLines(cmd);
-                    continue;
-                }
-                cmdLine *left = cmd;
-                cmdLine *right = cmd->next;
-
-                // Check illegal redirections
-                if (left->outputRedirect != NULL)
-                {
-                    fprintf(stderr, "Error: cannot redirect output of left-hand side of a pipeline\n");
-                    freeCmdLines(cmd);
-                    continue;
-                }
-
-                if (right->inputRedirect != NULL)
-                {
-                    fprintf(stderr, "Error: cannot redirect input of right-hand side of a pipeline\n");
-                    freeCmdLines(cmd);
-                    continue;
-                }
-                // Valid pipeline: execute it
-                execute_pipeline(left, &process_list);
-
-                // Parent: free the whole cmd list
-                // freeCmdLines(cmd);
-                continue;
+                freeCmdLines(cmd);
             }
-
-            int child_pid = fork();
-
-            // if we're the child process
-            if (child_pid == 0)
+            else if (pipe_result == 1) // valid pipeline
             {
-                if (!cmd->blocking)
-                {
-                    setpgid(0, 0);
-                }
-                // debug info printing
-                if (debug_mode)
-                {
-                    fprintf(stderr, "PID: %d\n", getpid());
-                    fprintf(stderr, "Executing command: %s\n", cmd->arguments[0]);
-                }
-
-                handle_redirection(cmd);
-
-                // command execution
-                if (execute(cmd) == -1)
-                {
-                    freeCmdLines(cmd);
-                    perror("execv failed");
-                    _exit(1);
-                }
+                execute_pipeline(cmd, &process_list);
             }
+            else // non pipeline
+                execute_single(cmd, &process_list);
+        }
 
-            // if we're the parent process
-            else
-            {
-                // add to process list
-                addProcess(&process_list, cmd, child_pid);
-                if (cmd->blocking)
-                    waitpid(child_pid, NULL, 0);
-            }
-
-            // freeCmdLines(cmd);
+        else // EOF reached
+        {
+            printf("EOF reached\n");
+            break;
         }
     }
 
+    freeHistory();
     freeProcessList(&process_list);
     return 0;
 }
