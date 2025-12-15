@@ -37,6 +37,7 @@ int main(int argc, char *argv[])
     int files_length = system_call(GETDENTS_SYSCALL, file, (struct linux_dirent *)buf, BUF_SIZE);
     if (files_length < 0)
     {
+        system_call(WRITE_SYSCALL, 1, "No files found, exiting...\n", strlen("No files found, exiting...\n"));
         system_call(CLOSE_SYSCALL, file);
         system_call(EXIT_SYSCALL, EXIT_ERROR);
     }
