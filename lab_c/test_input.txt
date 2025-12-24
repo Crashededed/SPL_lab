@@ -1,0 +1,82 @@
+echo === Basic Commands ===
+ls
+pwd
+echo hello world
+
+echo === cd Command ===
+cd /tmp
+pwd
+cd /workspaces/SPL_lab/lab_c
+pwd
+cd /nonexistent_directory
+
+echo === Output Redirection ===
+echo redirected output > /tmp/redirect_test.txt
+cat /tmp/redirect_test.txt
+
+echo === Input Redirection ===
+echo line1 > /tmp/input_test.txt
+cat < /tmp/input_test.txt
+
+echo === Simple Pipeline ===
+echo one two three | wc -w
+ls -la | head -3
+
+echo === Pipeline with input redirection on left ===
+cat < /tmp/input_test.txt | wc -c
+
+echo === Pipeline with output redirection on right ===
+echo pipeline output | cat > /tmp/pipe_out.txt
+cat /tmp/pipe_out.txt
+
+echo === ERROR: Invalid Pipeline - output redirect on left side ===
+echo hello > /tmp/out.txt | cat
+
+echo === ERROR: Invalid Pipeline - input redirect on right side ===
+echo hello | cat < /tmp/input_test.txt
+
+echo === History Stress Test (overflow HISTLEN=10) ===
+echo cmd1
+echo cmd2
+echo cmd3
+echo cmd4
+echo cmd5
+echo cmd6
+echo cmd7
+echo cmd8
+echo cmd9
+echo cmd10
+echo cmd11
+echo cmd12
+history
+
+echo === ERROR: Invalid History Access ===
+!0
+!100
+
+echo === Valid History Access ===
+!!
+!1
+
+echo === Process List ===
+procs
+
+echo === Another Pipeline ===
+echo bbb | wc -c
+
+echo === Empty echo in pipeline ===
+echo | wc -c
+
+echo === Multiple spaces and args ===
+echo a   b    c | wc -w
+
+echo === zzzz/kuku/blast with invalid PID ===
+zzzz 999999
+kuku 999999
+blast 999999
+
+echo === Final procs check ===
+procs
+procs
+
+quit
