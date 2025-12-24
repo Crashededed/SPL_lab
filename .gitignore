@@ -60,3 +60,4 @@ dkms.conf
 /.vscode
 /lab_3/bin
 /lab_c/bin
+**/bin/
