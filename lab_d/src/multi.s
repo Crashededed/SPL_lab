@@ -370,71 +370,81 @@ main:
     mov ecx, [ebp+8]       ; Get first argument ac
     mov edx, [ebp+12]      ; Get 2nd argument av
 
-    pushad              ; Save argc
-    push dword ecx       ; push av[i] (i=0 first)
-    push dword int_fmt
-    call printf            ; printf(string_fmt, [edx])
-    add esp, 8             ; "remove" printf arguments
-    popad
+    cmp     ecx, 1 ; if no args, go to default mode
+    jle     default_mode
 
-NextArgv:
-    pushad
-    push dword [edx]       ; push av[i] (i=0 first)
-    push dword string_fmt
-    call printf            ; printf(string_fmt, [edx])
-    add esp, 8             ; "remove" printf arguments
-    popad
+    mov     edx, [edx+4] ; Get first argument string av[1]
+    mov     ax, [edx]
+    cmp     ax, 0x492D      ; argv[1] == "-I"?
+    je      input_mode
 
-    add edx, 4             ; advance edx to &av[i+1]
-    dec ecx                ; dec. arg counter
-    jnz NextArgv               ; loop if not yet zero
+    cmp     ax, 0x522D      ; argv[1] == "-R"?
+    je      random_mode
 
-Task1:
-    ; ;task 1a
-    ; push x_struct          ; Push address of the struct
-    ; call print_multi
-    ; add esp, 4             ; Clean stack
+default_mode:
+    push    x_struct ;push X and Y
+    call    print_multi ; Print X
+    add     esp, 4
+    
+    push    y_struct
+    call    print_multi ; Print Y
+    add     esp, 4
+    
+    push    x_struct ;push X and Y for addition
+    push    y_struct
+    call    add_multi ; Add X + Y
+    add     esp, 8
+    push    eax
+    call    print_multi ; Print result
+    add     esp, 4
+    jmp     EndMain
 
-    ;; Task 1.B 
-    ; call    get_multi          ; Read user input into input_buf
+input_mode:
+    call    get_multi       ; Read integer A from stdin
+    push    eax ;push for addition
+    
+    push    eax                ; Push copy for printing
+    call    print_multi        
+    add     esp, 4             
 
-    ; push    eax                 ; passing struct pointer
-    ; call    print_multi
-    ; add     esp, 4
+    call    get_multi       ; Read integer B from stdin
+    push    eax ;push for addition
+    
+    push    eax                ; Push copy for printing
+    call    print_multi        
+    add     esp, 4     
+    
+    call    add_multi       ; Add A + B (args already on stack)
+    add     esp, 8
 
-    ; ; task 2
-    ; push    x_struct          ; Push address of struct X
-    ; push    y_struct          ; Push address of struct Y
-    ; call    add_multi         ; Add X + Y, result in eax
-    ; add     esp, 8            ; Clean stack
+    push    eax
+    call    print_multi  ; Print result
+    add     esp, 4
+    jmp     EndMain
 
-    ; push    eax               ; Push result struct pointer
-    ; call    print_multi       ; Print result
-    ; add     esp, 4            ; Clean stack
+random_mode:
+    call    PRmulti       ; get random integer A
+    push    eax ;push for addition
+    
+    push    eax                ; Push copy for printing
+    call    print_multi        
+    add     esp, 4  
 
-    ; ;; Task 3: Random Number Generation
-    ; call    rand_num          ; Get random number in AL
-    ; push    eax               ; Push random number
-    ; push    int_fmt           ; Push format string
-    ; call    printf            ; Print random number
-    ; add     esp, 8            ; Clean stack
+    call    PRmulti       ; get random integer B
+    push    eax ;push for addition
+    
+    push    eax                ; Push copy for printing
+    call    print_multi        
+    add     esp, 4  
+    
+    call    add_multi       ; Add A + B
+    add     esp, 8
 
-    call    PRmulti         ; Get pseudo-random multi-precision integer
-    push    eax             ; Push struct pointer
-    call    print_multi     ; Print the multi-precision integer
-    add     esp, 4          ; Clean stack
+    push    eax
+    call    print_multi  ; Print result
+    add     esp, 4
+    jmp     EndMain
 
-    call    PRmulti         ; Get pseudo-random multi-precision integer
-    push    eax             ; Push struct pointer
-    call    print_multi     ; Print the multi-precision integer
-    add     esp, 4          ; Clean stack
-
-    call    PRmulti         ; Get pseudo-random multi-precision integer
-    push    eax             ; Push struct pointer
-    call    print_multi     ; Print the multi-precision integer
-    add     esp, 4          ; Clean stack
-
-    ; task 4: Pseudo-Random Multi-Precision Integer
 
 EndMain:
     mov esp, ebp
