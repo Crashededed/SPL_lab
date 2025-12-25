@@ -12,13 +12,18 @@ section .rodata
     int_fmt: db "%d", 10, 0  ; "%d\n"
     hex_fmt:    db "%02hhx", 0     
     
+    
 section .bss
     input_buf: resb 600              ; buffer for input
 
 section .data
     x_struct: dd 5                  ; length in bytes
     x_num:    db 0xaa, 1, 2, 0x44, 0x4f ; array of bytes
+    y_struct: dd 6                  ; length in bytes
+    y_num:    db 0xaa, 1, 2, 3, 0x44, 0x4f ; array of bytes
 
+    lfsr_state: dw 0xB0B0       ; Initial Seed 
+    mask:       dw 0xB400       ; 16-bit fibonacci LFSR taps (1, 11, 13, 14, 16)
 section .text
 print_multi: ; Function: print_multi(struct multi *p)
     push    ebp ;set up stack frame
@@ -222,9 +227,143 @@ add_multi:
     pop     edx             ; edx = ptr to Max struct
 
     mov     [eax], ecx      ; Store length in new struct
+    push    eax           ; Save pointer to struct C
 
-    ; // todo: continue implementing addition logic here
+    ; setup pointers for addition loop
+    mov     ecx, [ebx]      ; ecx = length of Min struct
+    lea     esi, [ebx+4]    ; esi = start of Min array
+    lea     ebx, [edx+4]    ; ebx = start of Max array
+    lea     edi, [eax+4]    ; edi = start of C array
+
+    clc ;clear carry flag
+
+shared_loop:
+    mov     al, [esi]       ; Load byte from Min array
+    adc     al, [ebx]       ; Add byte from Max array + Carry Flag
+    mov     [edi], al       ; Store result in C
+
+    inc     esi             ; Move all pointers forward
+    inc     ebx             
+    inc     edi
+    dec     ecx             ; Decrement Min length
+    jnz     shared_loop     ; Loop if Min length not zero
+
+    ; Handle remaining bytes in Max array
+    mov     ecx, [edx]          ; Load Max Length
+    add     ecx, edx            ; ecx = address of Max Struct + Max Struct Length
+    add     ecx, 4              ; Adjust for length field (4 bytes) -> ECX is now the address of the final byte of Max array
+    sub     ecx, ebx            ; ECX = End Address - Current Pointer (EBX) = Remaining Bytes to process
+
+    jz      final_carry         ; If no remaining bytes, check for final carry
+
+remaining_loop:
+    mov     al, 0               ; Prepare 0
+    adc     al, [ebx]           ; Add 0 + Max Byte + Carry 
+    mov     [edi], al           ; Store result in C
+
+    inc     ebx                 ; Move pointers
+    inc     edi
+    dec     ecx                 ; Decrement counter
+    jnz     remaining_loop
+
+final_carry:
+    mov     al, 0
+    adc     al, 0               ; Add any lingering carry to 0
+    mov     [edi], al           ; Store in the extra byte we allocated for C    
+
+    pop     eax                 ; Restore pointer to struct C for return
+    pop     edi                 ; Restore callee-saved registers
+    pop     esi
+    pop     ebx
+    mov     esp, ebp    ;restore stack frame
+    pop     ebp
+    ret
+
+rand_num: ; output: al = random 8 bit number
+    push ebp ;stack frame
+    mov ebp, esp
+    push ebx ;save callee-saved registers
+
+    mov ecx, 8 ; ecx is bit counter
+    mov bx, [lfsr_state] ; load current lfsr state
+    xor ax, ax ; clear ax to store result
+
+lfsr_loop:
+    mov     ax, bx
+    and     ax, [mask]      ; Apply mask to get tap bits
+
+    ; Calculate parity of masked ax, JP only checks lower 8 bits, so we need to fold upper bits into lower
+    mov     dx, ax 
+    shr     dx, 8 ; Shift upper byte into lower
+    xor     ax, dx ; XOR upper and lower bytes, now parity is in lower 8 bits
+
+    jp      even_parity    ; JP jumps if Parity Flag (PF) is 1 (Even)
     
+    ; If we are here, Parity is Odd (XOR sum is 1)
+    stc                     ; Set Carry Flag = 1
+    jmp     shift_state
+
+even_parity:
+    ; If we are here, Parity is Even (XOR sum is 0)
+    clc                     ; Carry Flag = 0
+
+shift_state:
+    rcr     bx, 1   ; Rotate Right with Carry
+                    ; shifts all bits right, LSB gets removed from state, MSB is assigned carry Flag
+
+    dec     ecx
+    jnz     lfsr_loop ; Loop until 8 bits generated
+
+    mov     [lfsr_state], bx ; Store updated LFSR state
+    mov     al, bl ; Return lower 8 bits as random number
+    and     eax, 0xFF       ; Clear upper bits, keep AL
+
+    pop     ebx ;restore callee-saved registers
+    mov     esp, ebp
+    pop     ebp
+    ret
+
+PRmulti: ;output: eax = pointer to pseudo-random multi-precision integer struct
+    push    ebp ;stack frame
+    mov     ebp, esp
+    push    ebx ;save callee-saved registers
+    push    esi
+    push    edi
+
+get_len_loop: ; get non-zero length for integer
+    call    rand_num        ; Get random byte
+    cmp     al, 0
+    jz      get_len_loop   ; Retry if 0
+
+    movzx   esi, al ; esi = length
+
+    ;Allocate Struct
+    lea     eax, [esi + 4]  ; Size + Header
+    push    eax
+    call    malloc
+    add     esp, 4
+
+    mov     [eax], esi ; Store length in struct
+    mov     ebx, eax        ; ebx = Struct Pointer
+    lea     edi, [eax + 4]  ; edi = Pointer to Struct Array Start
+
+fill_loop:
+    call    rand_num        ;al = random byte
+    mov     [edi], al       ; Store Random Byte in Struct
+    
+    inc     edi ; Move to next byte
+    dec     esi ; Decrement length
+    jnz     fill_loop
+
+    mov     eax, ebx        ; Restore Pointer
+    
+    pop     edi ;restore callee-saved registers
+    pop     esi
+    pop     ebx
+    mov     esp, ebp ;restore stack frame
+    pop     ebp
+    ret
+
 main:
     push ebp
     mov ebp, esp           
@@ -256,12 +395,46 @@ Task1:
     ; call print_multi
     ; add esp, 4             ; Clean stack
 
-    ; --- Task 1.B 
-    call    get_multi          ; Read user input into input_buf
+    ;; Task 1.B 
+    ; call    get_multi          ; Read user input into input_buf
 
-    push    eax                 ; passing struct pointer
-    call    print_multi
-    add     esp, 4
+    ; push    eax                 ; passing struct pointer
+    ; call    print_multi
+    ; add     esp, 4
+
+    ; ; task 2
+    ; push    x_struct          ; Push address of struct X
+    ; push    y_struct          ; Push address of struct Y
+    ; call    add_multi         ; Add X + Y, result in eax
+    ; add     esp, 8            ; Clean stack
+
+    ; push    eax               ; Push result struct pointer
+    ; call    print_multi       ; Print result
+    ; add     esp, 4            ; Clean stack
+
+    ; ;; Task 3: Random Number Generation
+    ; call    rand_num          ; Get random number in AL
+    ; push    eax               ; Push random number
+    ; push    int_fmt           ; Push format string
+    ; call    printf            ; Print random number
+    ; add     esp, 8            ; Clean stack
+
+    call    PRmulti         ; Get pseudo-random multi-precision integer
+    push    eax             ; Push struct pointer
+    call    print_multi     ; Print the multi-precision integer
+    add     esp, 4          ; Clean stack
+
+    call    PRmulti         ; Get pseudo-random multi-precision integer
+    push    eax             ; Push struct pointer
+    call    print_multi     ; Print the multi-precision integer
+    add     esp, 4          ; Clean stack
+
+    call    PRmulti         ; Get pseudo-random multi-precision integer
+    push    eax             ; Push struct pointer
+    call    print_multi     ; Print the multi-precision integer
+    add     esp, 4          ; Clean stack
+
+    ; task 4: Pseudo-Random Multi-Precision Integer
 
 EndMain:
     mov esp, ebp
