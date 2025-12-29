@@ -187,6 +187,7 @@ void SaveIntoFile(){
 void MemoryModify(){
     unsigned int location, val;
     char input[128];
+    printf("Please enter <location> <val>\n");
     if (!fgets(input, sizeof(input), stdin)) {
         fprintf(stderr, "Error reading input\n");
         return;
