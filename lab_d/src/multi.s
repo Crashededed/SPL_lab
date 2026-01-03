@@ -245,6 +245,7 @@ shared_loop:
     inc     edi
     dec     ecx                         ; Decrement Min length
     jnz     shared_loop                 ; Loop if Min length not zero
+    pushf                               ; Save flags (carry)
 
     ; Handle remaining bytes in Max array
     mov     ecx, [edx]                  ; Load Max Length
@@ -252,7 +253,10 @@ shared_loop:
     add     ecx, 4                      ; Adjust for length field (4 bytes) -> ECX is now the address of the final byte of Max array
     sub     ecx, ebx                    ; ECX = End Address - Current Pointer (EBX) = Remaining Bytes to process
 
-    jz      final_carry                 ; If no remaining bytes, check for final carry
+    jz      skip_remaining                 ; If no remaining bytes, check for final carry
+
+    popf                                ; Restore flags (carry) for remaining loop,
+                                        ; since calculating remaining bytes cleared it
 
 remaining_loop:
     mov     al, 0                       ; Prepare 0
@@ -263,6 +267,10 @@ remaining_loop:
     inc     edi
     dec     ecx                         ; Decrement counter
     jnz     remaining_loop
+    jmp     final_carry
+
+skip_remaining:
+    popf                                ; Restore flags for final carry check
 
 final_carry:
     mov     al, 0
